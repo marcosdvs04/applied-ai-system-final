@@ -1,292 +1,182 @@
-# 🎵 Music Recommender Simulation
+# VibeMatch: A RAG-Powered Music Assistant
 
-## Project Summary
+**Original project (Modules 1-3): Music Recommender Simulation ("VibeMatch 1.0").**
+The original was a small content-based recommender. It stored an 18-song catalog, took a hand-written taste profile (favorite genre, favorite mood, target energy, likes acoustic), scored every song with a weighted rule (genre +2.0, mood +1.5, energy up to +2.0, acoustic fit up to +1.0, max 6.5) and printed the top 5 with a reason for each score. It could only run for profiles a developer typed into `main.py`.
 
-In this project you will build and explain a small music recommender system.
+## Title and Summary
 
-Your goal is to:
+**VibeMatch** now lets a person simply *say* what they want ("music for studying late at night", "I'm at the gym, need something hype"). The system **retrieves** relevant notes from a small music knowledge base, uses them to build the taste profile, runs the original recommender, and **explains the result using the retrieved notes as sources**. It also checks its own inputs and outputs, reports a confidence score, logs every request, and is covered by automated tests and an evaluation script.
 
-- Represent songs and a user "taste profile" as data
-- Design a scoring rule that turns that data into recommendations
-- Evaluate what your system gets right and wrong
-- Reflect on how this mirrors real world AI recommenders
+Why it matters: recommenders usually hide how they decide. Here every answer shows the evidence it used (which knowledge-base chunk, which words in the request) and says so when it is unsure, instead of confidently guessing.
 
-Replace this paragraph with your own summary of what your version does.
+## Architecture Overview
 
----
+The diagram source is in [`diagrams/architecture.mmd`](diagrams/architecture.mmd) (PNG export: [`assets/architecture.png`](assets/architecture.png)).
 
-## How The System Works
-
-Real-world recommenders like Spotify or YouTube mix two ideas. **Collaborative filtering** says "people who liked what you liked also liked this." **Content-based filtering** says "this song has similar attributes to what you like." They score thousands of candidates, then rank and filter them, adding variety and freshness. My version is a small content-based recommender. It doesn't learn from other users. Instead, it compares each song's attributes directly against a user's taste profile. It weights **genre** slightly above **mood**, because genre is the most stable part of someone's taste, but a song with the right mood can still beat one that only matches the genre. Then it looks at how close a song's **energy** is to the user's target, and finally whether its acoustic feel fits. The goal is to match the overall "vibe," not just pick the most energetic or most popular track.
-
-**`Song` features used:**
-- `genre`: categorical, exact match
-- `mood`: categorical, exact match
-- `energy`: 0–1, scored by closeness to the user's target
-- `acousticness`: 0–1, scored by whether the user likes acoustic sound
-- (stored but not scored yet: `tempo_bpm`, `valence`, `danceability`)
-
-**`UserProfile` features:**
-- `favorite_genre`
-- `favorite_mood`
-- `target_energy` (0–1)
-- `likes_acoustic` (True/False)
-
-### Data Flow
-
-```
-INPUT                         PROCESS (recommend_songs)              OUTPUT
-songs.csv ─► load_songs() ─┐  for each song in the catalog:          sort by score, high → low
-                           ├─►  score_song(user_prefs, song)    ─►   keep the top k
-user_prefs ────────────────┘    → (score, reasons)                   print title, score, reasons
+```mermaid
+flowchart LR
+    U([Request]) --> V{Input guardrails}
+    V -- invalid --> REJ[rejected]
+    V --> R[Retriever over knowledge base]
+    R --> P[Profile builder + confidence]
+    P --> S[Sanitize profile]
+    S --> C{Confidence ok?}
+    C -- no --> CLAR[needs_clarification]
+    C -- yes --> REC[Original recommender]
+    REC --> CHK[Output check]
+    CHK --> GEN[Grounded explanation]
+    GEN --> OUT([Songs + why + confidence])
+    V -.-> LOG[(log file)]
+    CHK -.-> LOG
+    T[pytest + eval script + human review] -.-> OUT
 ```
 
-Each song is scored independently against the user's profile. Songs are only compared with each other in the final sort.
-
-### Algorithm Recipe (finalized)
-
-**Step 1: Score one song (max 6.5 points)**
-
-| Rule | Points | Why |
+| Component | File | Job |
 |---|---|---|
-| Genre matches `favorite_genre` | +2.0 | Genre is the most stable signal of taste, so it gets the largest weight. |
-| Mood matches `favorite_mood` | +1.5 | Close to genre, so a "right vibe, wrong genre" song can still rank well. |
-| Energy closeness | +2.0 × max(0, 1 − \|energy − target_energy\| / 0.5) | An exact match earns 2.0. Points shrink as the gap grows, and a gap of 0.5 or more earns 0, so very loud songs are penalized for a calm listener. |
-| Acoustic fit | +1.0 × acousticness (or × (1 − acousticness) if `likes_acoustic` is False) | A texture preference, so it counts less than a genre or mood match. |
+| Knowledge base | `data/knowledge/music_knowledge.md` | 28 chunks: 13 situations (studying, workout, night drive...) and 15 genre notes, each with metadata (genre, mood, energy, acoustic) and a citable `note:` |
+| Retriever | `src/knowledge.py` | Keyword + stemming match, returns chunks only if a real keyword hits |
+| Profile builder | `src/profile_builder.py` | Combines explicit words in the request with retrieved hints; explicit wins. Computes a confidence score |
+| Guardrails | `src/guardrails.py` | Validates input, clamps energy, flags unknown genres, checks output ordering/range |
+| Recommender | `src/recommender.py` | The original Module 3 scoring logic, unchanged |
+| Explainer | `src/explainer.py` | Builds the explanation from score reasons plus the cited KB note. Optional Gemini rewrite with a grounding check |
+| Pipeline | `src/pipeline.py` | Orchestrates everything and writes `logs/vibematch.log` |
+| CLI | `src/cli.py` | `python -m src.cli "..."` |
+| Evaluation | `evals/evaluate.py` | 16 scripted checks, writes `evals/results.md` |
 
-Genre and mood are exact, case-insensitive string matches. Each rule records a short reason (for example, `mood match (chill) +1.50`) so every score comes with an explanation.
+**Where RAG changes behavior:** the retrieved chunk decides the genre, mood, energy and acoustic preference when the user did not state them. "Gym" and "studying" lead to different profiles and different songs only because of what was retrieved (see `test_retrieval_changes_the_recommendations`). The explanation text is also taken from the retrieved chunk, not invented.
 
-**Step 2: Rank the catalog.** Score all songs, sort from highest to lowest, and return the top *k* as `(song, score, explanation)`.
+## Setup Instructions
 
-**Example** (lofi / chill / energy 0.40 / likes acoustic): Library Rain 6.16, Midnight Coding 6.13, Focus Flow 4.78 at the top; Gym Hero 0.05, Iron Furnace 0.03, Neon Euphoria 0.02 at the bottom.
-
-**Why this weighting:** I compared three options. A genre-first version (genre 3.0, mood 1.5) barely separated the non-lofi songs. A mood-first version (genre 1.0, mood 2.0) let an ambient song beat a lofi one for a user who explicitly named lofi as their favorite genre. This version keeps genre slightly ahead while still giving mood real weight.
-
-### Expected Biases and Limitations
-
-- **Genre can still outweigh mood.** A genre match (+2.0) is worth more than a mood match (+1.5). For example, Focus Flow (lofi, *focused*) outranks Spacewalk Thoughts (ambient, *chill*), even though Spacewalk has exactly the mood the user asked for.
-- **Exact matching misses near-misses.** "relaxed" earns nothing toward "chill", and "indie pop" earns nothing toward "pop", so similar songs can be overlooked just because of their labels.
-- **Uneven catalog.** Lofi has 3 songs, but most genres have only 1. A lofi fan gets several strong matches, while a metal or classical fan gets one, and the rest of their list is filled by energy and acoustic points alone.
-- **The acoustic rule is all-or-nothing.** `likes_acoustic` is True/False, so a user who dislikes acoustic music automatically gets electronic and pop songs pushed up, whether they want them or not.
-- **No variety control.** Nothing stops the same artist from filling the top spots. LoRoom has 2 of the top 3 songs for the lofi profile.
-- **Ignored features.** `tempo_bpm`, `valence`, and `danceability` are stored but not scored, so two songs that feel very different can tie if their genre, mood, energy, and acousticness match.
-
----
-
-## Getting Started
-
-### Setup
-
-1. Create a virtual environment (optional but recommended):
-
-   ```bash
-   python -m venv .venv
-   source .venv/bin/activate      # Mac or Linux
-   .venv\Scripts\activate         # Windows
-
-2. Install dependencies
+Requires Python 3.9+. No API key is needed.
 
 ```bash
+git clone https://github.com/marcosdvs04/applied-ai-system-final.git
+cd applied-ai-system-final
+python3 -m venv venv && source venv/bin/activate     # Windows: venv\Scripts\activate
 pip install -r requirements.txt
+
+python -m src.cli "music for studying late at night"   # one request
+python -m src.cli                                      # interactive mode
+python -m pytest -q                                    # 27 tests
+python -m evals.evaluate                               # reliability report -> evals/results.md
+python -m src.main                                     # original Module 3 demo (7 fixed profiles)
 ```
 
-3. Run the app:
+Optional: set `GEMINI_API_KEY` (and optionally `GEMINI_MODEL`) in your shell and add `--llm` to polish the explanation. If the key is missing, the call fails, or the reply mentions anything not in the source text, the system silently uses the offline explanation. The LLM can never change the ranking. This optional path was written to be safe but I did not run it against the live API, so treat it as untested.
 
-```bash
-python -m src.main
-```
+## Sample Interactions
 
-### Running Tests
+Real output, copied from `evals/sample_runs.txt` (generated by running the commands shown).
 
-Run the starter tests with:
-
-```bash
-pytest
-```
-
-You can add more tests in `tests/test_recommender.py`.
-
----
-
-## Sample Recommendation Output
-
-Output of `python -m src.main` (top 5 per profile). The first three are typical listeners; the last four are adversarial profiles built to try to trick the scoring logic.
-
-### Standard profiles
-
-**High-Energy Pop**
+**1. Situation only (RAG fills in every field)**
 
 ```
-Profile: High-Energy Pop
-Prefs:   {'favorite_genre': 'pop', 'favorite_mood': 'happy', 'target_energy': 0.85, 'likes_acoustic': False}
-1. Sunrise City (pop, happy, energy 0.82) - Score: 6.20
-   Because: genre match (+2.0); mood match (+1.5); energy 0.82 vs target 0.85 (+1.88); acoustic fit (+0.82)
-2. Gym Hero (pop, intense, energy 0.93) - Score: 4.63
-   Because: genre match (+2.0); energy 0.93 vs target 0.85 (+1.68); acoustic fit (+0.95)
-3. Rooftop Lights (indie pop, happy, energy 0.76) - Score: 3.79
-   Because: mood match (+1.5); energy 0.76 vs target 0.85 (+1.64); acoustic fit (+0.65)
-4. Concrete Verses (hip hop, energetic, energy 0.80) - Score: 2.68
-   Because: energy 0.80 vs target 0.85 (+1.80); acoustic fit (+0.88)
-5. Storm Runner (rock, intense, energy 0.91) - Score: 2.66
-   Because: energy 0.91 vs target 0.85 (+1.76); acoustic fit (+0.90)
+$ python -m src.cli "music for studying late at night"
+Status: ok   Confidence: 0.75
+Profile: genre=lofi, mood=focused, energy=0.40, acoustic=True
+  evidence: retrieved 'Situation: studying and coding' (score 2.0)
+  evidence: genre: 'lofi' from 'Situation: studying and coding'
+Why: Steady, low-energy, mostly instrumental music keeps attention on the task without grabbing it. Lofi with a slow tempo is the classic choice. [KB: Situation: studying and coding] Top pick ...: Focus Flow by LoRoom (score 6.28).
+1. Focus Flow - LoRoom (lofi/focused) score 6.28/6.5
+     because: genre match (+2.0); mood match (+1.5); energy 0.40 vs target 0.40 (+2.00); acoustic fit (+0.78)
+2. Library Rain - Paper Lanterns (lofi/chill) score 4.66/6.5
+3. Midnight Coding - LoRoom (lofi/chill) score 4.63/6.5
 ```
 
-**Chill Lofi**
+**2. Request words override retrieved hints**
 
 ```
-Profile: Chill Lofi
-Prefs:   {'favorite_genre': 'lofi', 'favorite_mood': 'chill', 'target_energy': 0.4, 'likes_acoustic': True}
-1. Library Rain (lofi, chill, energy 0.35) - Score: 6.16
-   Because: genre match (+2.0); mood match (+1.5); energy 0.35 vs target 0.40 (+1.80); acoustic fit (+0.86)
-2. Midnight Coding (lofi, chill, energy 0.42) - Score: 6.13
-   Because: genre match (+2.0); mood match (+1.5); energy 0.42 vs target 0.40 (+1.92); acoustic fit (+0.71)
-3. Focus Flow (lofi, focused, energy 0.40) - Score: 4.78
-   Because: genre match (+2.0); energy 0.40 vs target 0.40 (+2.00); acoustic fit (+0.78)
-4. Spacewalk Thoughts (ambient, chill, energy 0.28) - Score: 3.94
-   Because: mood match (+1.5); energy 0.28 vs target 0.40 (+1.52); acoustic fit (+0.92)
-5. Coffee Shop Stories (jazz, relaxed, energy 0.37) - Score: 2.77
-   Because: energy 0.37 vs target 0.40 (+1.88); acoustic fit (+0.89)
+$ python -m src.cli "I'm at the gym, need something hype"
+Status: ok   Confidence: 1.00
+Profile: genre=pop, mood=energetic, energy=0.90, acoustic=False
+  evidence: genre: 'pop' from 'Situation: working out'
+  evidence: mood: 'energetic' stated in the request
+1. Gym Hero - Max Pulse (pop/intense) score 4.83/6.5
+2. Sunrise City - Neon Echo (pop/happy) score 4.50/6.5
+3. Concrete Verses - Kid Meridian (hip hop/energetic) score 3.98/6.5
 ```
 
-**Deep Intense Rock**
+**3. Something the catalog cannot satisfy (guardrail + honest confidence)**
 
 ```
-Profile: Deep Intense Rock
-Prefs:   {'favorite_genre': 'rock', 'favorite_mood': 'intense', 'target_energy': 0.9, 'likes_acoustic': False}
-1. Storm Runner (rock, intense, energy 0.91) - Score: 6.36
-   Because: genre match (+2.0); mood match (+1.5); energy 0.91 vs target 0.90 (+1.96); acoustic fit (+0.90)
-2. Gym Hero (pop, intense, energy 0.93) - Score: 4.33
-   Because: mood match (+1.5); energy 0.93 vs target 0.90 (+1.88); acoustic fit (+0.95)
-3. Neon Euphoria (edm, euphoric, energy 0.95) - Score: 2.78
-   Because: energy 0.95 vs target 0.90 (+1.80); acoustic fit (+0.98)
-4. Iron Furnace (metal, angry, energy 0.97) - Score: 2.69
-   Because: energy 0.97 vs target 0.90 (+1.72); acoustic fit (+0.97)
-5. Sunrise City (pop, happy, energy 0.82) - Score: 2.50
-   Because: energy 0.82 vs target 0.90 (+1.68); acoustic fit (+0.82)
+$ python -m src.cli "k-pop dreamy"
+Status: low_confidence   Confidence: 0.30
+Profile: genre=k-pop, mood=moody, energy=0.50, acoustic=False
+1. Night Drive Loop - Neon Echo (synthwave/moody) score 3.28/6.5
+! Genre 'k-pop' is not in the catalog, so it can't earn genre points.
 ```
 
-### Adversarial / edge-case profiles
-
-**Conflicted: Sad but High-Energy**
+**4. Gibberish (refuses to guess)**
 
 ```
-Profile: Conflicted: Sad but High-Energy
-Prefs:   {'favorite_genre': 'classical', 'favorite_mood': 'sad', 'target_energy': 0.9, 'likes_acoustic': False}
-1. Nocturne in Grey (classical, sad, energy 0.15) - Score: 3.53
-   Because: genre match (+2.0); mood match (+1.5); energy 0.15 vs target 0.90 (+0.00); acoustic fit (+0.03)
-2. Storm Runner (rock, intense, energy 0.91) - Score: 2.86
-   Because: energy 0.91 vs target 0.90 (+1.96); acoustic fit (+0.90)
-3. Gym Hero (pop, intense, energy 0.93) - Score: 2.83
-   Because: energy 0.93 vs target 0.90 (+1.88); acoustic fit (+0.95)
-4. Neon Euphoria (edm, euphoric, energy 0.95) - Score: 2.78
-   Because: energy 0.95 vs target 0.90 (+1.80); acoustic fit (+0.98)
-5. Iron Furnace (metal, angry, energy 0.97) - Score: 2.69
-   Because: energy 0.97 vs target 0.90 (+1.72); acoustic fit (+0.97)
+$ python -m src.cli "asdf qwer"
+Status: needs_clarification   Confidence: 0.00
+! I couldn't tell what you want. Try a situation (studying, workout, night drive), a genre (jazz, edm) or a mood (sad, happy).
 ```
 
-**Ghost Genre: K-Pop / Dreamy**
+## Reliability and Guardrail Results
 
-```
-Profile: Ghost Genre: K-Pop / Dreamy
-Prefs:   {'favorite_genre': 'k-pop', 'favorite_mood': 'dreamy', 'target_energy': 0.6, 'likes_acoustic': True}
-1. Porch Light Memories (country, nostalgic, energy 0.52) - Score: 2.33
-   Because: energy 0.52 vs target 0.60 (+1.68); acoustic fit (+0.65)
-2. Midnight Coding (lofi, chill, energy 0.42) - Score: 1.99
-   Because: energy 0.42 vs target 0.60 (+1.28); acoustic fit (+0.71)
-3. Focus Flow (lofi, focused, energy 0.40) - Score: 1.98
-   Because: energy 0.40 vs target 0.60 (+1.20); acoustic fit (+0.78)
-4. Coffee Shop Stories (jazz, relaxed, energy 0.37) - Score: 1.97
-   Because: energy 0.37 vs target 0.60 (+1.08); acoustic fit (+0.89)
-5. Library Rain (lofi, chill, energy 0.35) - Score: 1.86
-   Because: energy 0.35 vs target 0.60 (+1.00); acoustic fit (+0.86)
-```
+Full outputs: [`evals/results.md`](evals/results.md), [`evals/pytest_output.txt`](evals/pytest_output.txt), [`evals/sample_runs.txt`](evals/sample_runs.txt).
 
-**Out-of-Range Energy (1.5)**
+**Summary: 27 of 27 pytest tests pass. 16 of 16 scripted evaluation checks pass. Average confidence on answered requests: 0.78 (min 0.30, max 1.00).**
 
-```
-Profile: Out-of-Range Energy (1.5)
-Prefs:   {'favorite_genre': 'edm', 'favorite_mood': 'euphoric', 'target_energy': 1.5, 'likes_acoustic': False}
-1. Neon Euphoria (edm, euphoric, energy 0.95) - Score: 4.48
-   Because: genre match (+2.0); mood match (+1.5); energy 0.95 vs target 1.50 (+0.00); acoustic fit (+0.98)
-2. Iron Furnace (metal, angry, energy 0.97) - Score: 0.97
-   Because: energy 0.97 vs target 1.50 (+0.00); acoustic fit (+0.97)
-3. Gym Hero (pop, intense, energy 0.93) - Score: 0.95
-   Because: energy 0.93 vs target 1.50 (+0.00); acoustic fit (+0.95)
-4. Storm Runner (rock, intense, energy 0.91) - Score: 0.90
-   Because: energy 0.91 vs target 1.50 (+0.00); acoustic fit (+0.90)
-5. Concrete Verses (hip hop, energetic, energy 0.80) - Score: 0.88
-   Because: energy 0.80 vs target 1.50 (+0.00); acoustic fit (+0.88)
-```
+| Test input | Evaluation criterion | Status | Confidence | Result |
+|---|---|---|---|---|
+| `music for studying` | Top song is lofi | ok | 0.75 | Pass |
+| `I'm at the gym` | Top song energy >= 0.9 | ok | 0.75 | Pass |
+| `party tonight` | Top song is edm | ok | 0.75 | Pass |
+| `rainy sad afternoon` | Top song is folk or classical | ok | 1.00 | Pass |
+| `night drive` | Top song is synthwave | ok | 1.00 | Pass |
+| `coffee shop vibes` | Top song is jazz | ok | 0.88 | Pass |
+| `I am so angry` | Top song is metal | ok | 0.82 | Pass |
+| `romantic dinner date` | Top song is r&b | ok | 1.00 | Pass |
+| `reggaeton para bailar` | Top song is reggaeton | ok | 0.82 | Pass |
+| `jazz` | Genre-only input works, flagged low confidence | low_confidence | 0.30 | Pass |
+| `edm with energy 1.5` | Out-of-range energy clamped to 1.0 | ok | 0.55 | Pass |
+| `k-pop` | Unknown genre flagged, no crash | needs_clarification | 0.00 | Pass |
+| `asdf qwer zxcv` | Gibberish asks for clarification | needs_clarification | 0.00 | Pass |
+| *(empty)* | Rejected | rejected | 0.00 | Pass |
+| *(400 x characters)* | Rejected | rejected | 0.00 | Pass |
+| `study music, no acoustic` | Explicit "no acoustic" overrides KB hint | ok | 0.79 | Pass |
 
-**Messy Input: 'LOFI' / 'Chill', no acoustic key**
+Guardrails in the code: input validation (empty, non-text, over 300 characters), energy clamping with a warning, unknown genre/mood warnings, a confidence gate (below 0.30 the system asks instead of recommending), an output check (sorted, in range, non-empty), a safety net around profile building, and a log line for every request in `logs/vibematch.log` (not committed, regenerated on each run).
 
-```
-Profile: Messy Input: 'LOFI' / 'Chill', no acoustic key
-Prefs:   {'favorite_genre': 'LOFI', 'favorite_mood': 'Chill', 'target_energy': 0.4}
-1. Midnight Coding (lofi, chill, energy 0.42) - Score: 5.71
-   Because: genre match (+2.0); mood match (+1.5); energy 0.42 vs target 0.40 (+1.92); acoustic fit (+0.29)
-2. Library Rain (lofi, chill, energy 0.35) - Score: 5.44
-   Because: genre match (+2.0); mood match (+1.5); energy 0.35 vs target 0.40 (+1.80); acoustic fit (+0.14)
-3. Focus Flow (lofi, focused, energy 0.40) - Score: 4.22
-   Because: genre match (+2.0); energy 0.40 vs target 0.40 (+2.00); acoustic fit (+0.22)
-4. Spacewalk Thoughts (ambient, chill, energy 0.28) - Score: 3.10
-   Because: mood match (+1.5); energy 0.28 vs target 0.40 (+1.52); acoustic fit (+0.08)
-5. Velvet Promise (r&b, romantic, energy 0.48) - Score: 2.36
-   Because: energy 0.48 vs target 0.40 (+1.68); acoustic fit (+0.68)
-```
+## Design Decisions and Trade-offs
 
----
+- **Keyword retrieval instead of embeddings or a vector database.** With 28 short chunks, embeddings would add a dependency, a cost and an API key while making it harder to see why a chunk was retrieved. Keyword matching is fully transparent and testable. The trade-off: it misses synonyms I did not list (for example "bedtime" works because I added it, "lullaby" does not).
+- **Explicit words beat retrieved hints.** If someone says "studying but I want metal", they get metal with the focused mood from the retrieved note. Retrieval fills gaps; it never overrides the user.
+- **Reuse the original recommender unchanged.** The new layers only produce a profile and explain the result, so every earlier test still passes and the scoring stays easy to reason about.
+- **LLM is optional and last.** The system works fully offline. An LLM may only rephrase the explanation and is checked against the source text, so it cannot change which songs are recommended.
+- **Confidence is a simple, explainable number**: weighted share of the four profile fields that have evidence (explicit = 1.0, retrieved = 0.5-1.0 by match strength, default = 0). It is a heuristic, not a calibrated probability.
 
-## Experiments You Tried
+## Testing Summary
 
-### Weight shift: halve genre, double energy
+What worked: situation and genre requests produce the expected top song, explicit words override retrieved hints, bad input is rejected or clamped instead of crashing, and logging captures each decision.
 
-**Change:** `GENRE_WEIGHT` 2.0 → 1.0 and `ENERGY_WEIGHT` 2.0 → 4.0 (mood 1.5 and acoustic 1.0 unchanged). I ran this temporarily by overriding the constants, then kept the original Strategy B weights in `recommender.py`.
+What did not work at first: the evaluation script caught that `k-pop` was silently ignored, because the genre detector only knew genres in the catalog, so the system said "needs clarification" without telling the user why. I added a list of real genres the catalog lacks so they are recognized and flagged. A second finding: a stated but unsupported genre still counted as full evidence, so `k-pop dreamy` showed confidence 0.60. I changed it to count as zero evidence, and confidence dropped to 0.30.
 
-**Math check:** the maximum score becomes 1.0 + 1.5 + 4.0 + 1.0 = **7.5**. A perfect song (lofi, chill, energy 0.40, acousticness 1.0) scored exactly 7.5 for the Chill Lofi profile, and every score across all 7 profiles and 18 songs stayed between 0 and 7.5, so the formula is still valid.
-
-**Top 5, before → after:**
-
-| Profile | Before (Strategy B) | After (genre 1.0, energy 4.0) |
-|---|---|---|
-| High-Energy Pop | Sunrise City, Gym Hero, Rooftop Lights, Concrete Verses, Storm Runner | Sunrise City, **Rooftop Lights, Gym Hero**, Concrete Verses, Storm Runner |
-| Chill Lofi | Library Rain, Midnight Coding, Focus Flow, Spacewalk Thoughts, Coffee Shop Stories | **Midnight Coding, Library Rain**, Focus Flow, Spacewalk Thoughts, Coffee Shop Stories |
-| Deep Intense Rock | Storm Runner, Gym Hero, Neon Euphoria, Iron Furnace, Sunrise City | unchanged |
-| Conflicted: Sad but High-Energy | **Nocturne in Grey**, Storm Runner, Gym Hero, Neon Euphoria, Iron Furnace | Storm Runner, Gym Hero, Neon Euphoria, Iron Furnace, **Sunrise City** (Nocturne in Grey drops out) |
-
-**More accurate or just different?** Mostly just different. The top song stayed the same for 3 of the 4 profiles, and the changes were mostly neighbors swapping places:
-- **High-Energy Pop:** Rooftop Lights (indie pop, *happy*) moved above Gym Hero (pop, *intense*). That arguably fits a happy-pop listener better.
-- **Chill Lofi:** Midnight Coding overtook Library Rain because its energy is closer to 0.40.
-- **Conflicted profile:** the sad classical song disappeared entirely, and the list became generic loud tracks. With energy worth 4.0, the system now ignores the listener's genre and mood whenever they disagree with their energy.
-
-I kept the original weights because the experiment traded one bias (labels beat sound) for the opposite one (energy beats everything).
-
----
-
-## Limitations and Risks
-
-Summarize some limitations of your recommender.
-
-Examples:
-
-- It only works on a tiny catalog
-- It does not understand lyrics or language
-- It might over favor one genre or mood
-
-You will go deeper on this in your model card.
-
----
+What I learned: guardrails and tests found problems my demo runs never did, and a confidence number is only useful if it can go down for the right reasons.
 
 ## Reflection
 
-Read and complete `model_card.md`:
+This project taught me that the useful part of an AI system is often the code around the model: deciding what evidence to retrieve, what to trust when sources disagree, when to refuse, and how to show the evidence. Making the Module 3 recommender talk in natural language took less work than making it admit when it did not understand. The ethics, limitations and AI-collaboration notes are in [`model_card.md`](model_card.md).
 
-[**Model Card**](model_card.md)
+## Portfolio
 
-Write 1 to 2 paragraphs here about what you learned:
+- Code: https://github.com/marcosdvs04/applied-ai-system-final
+- **What this project says about me as an AI engineer:** I build AI features that can show their evidence and say "I'm not sure." I reuse working code instead of rewriting it, test the failure cases on purpose, and treat guardrails, logging and honest evaluation as part of the feature rather than an afterthought.
 
-- about how recommenders turn data into predictions
-- about where bias or unfairness could show up in systems like this
+## Project Structure
 
-
-
+```
+applied-ai-system-final/
+├── README.md              model_card.md
+├── assets/architecture.png
+├── diagrams/architecture.mmd         (Mermaid source)
+├── data/songs.csv                    data/knowledge/music_knowledge.md
+├── src/   recommender.py  knowledge.py  profile_builder.py  guardrails.py
+│          explainer.py  pipeline.py  cli.py  main.py
+├── tests/ test_recommender.py  test_knowledge.py  test_guardrails.py  test_pipeline.py
+├── evals/ evaluate.py  results.md  sample_runs.txt  pytest_output.txt
+└── logs/  (runtime log, not committed)
+```

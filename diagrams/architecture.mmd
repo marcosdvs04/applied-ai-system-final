@@ -1,0 +1,49 @@
+flowchart TD
+    U([User request in plain text]) --> V
+
+    subgraph GUARD_IN [Input guardrails]
+        V{validate_query<br/>empty / too long / not text}
+    end
+    V -- invalid --> REJ[Status: rejected<br/>explain what to fix]
+    V -- valid --> R
+
+    subgraph RAG [Retrieval-Augmented profile building]
+        KB[(Knowledge base<br/>data/knowledge/music_knowledge.md<br/>28 chunks)]
+        R[Retriever<br/>keyword + stemming + min-score]
+        KB --> R
+        R --> P[Profile builder<br/>explicit words beat retrieved hints<br/>computes confidence]
+        EXP[Explicit words in query<br/>genre, mood, energy, acoustic] --> P
+    end
+
+    P --> S[sanitize_profile<br/>clamp energy, flag unknown genre/mood]
+    S --> C{confidence<br/>threshold}
+    C -- below 0.30 --> CLAR[Status: needs_clarification<br/>ask user for more detail]
+    C -- ok --> REC
+
+    subgraph CORE [Original Module 3 recommender]
+        SONGS[(data/songs.csv<br/>18 songs)]
+        REC[recommend_songs<br/>Strategy B weighted scoring]
+        SONGS --> REC
+    end
+
+    REC --> CHK[check_recommendations<br/>sorted, in range, not empty]
+    CHK --> GEN[Grounded explainer<br/>score reasons + cited KB note]
+    GEN -. optional, verified .-> LLM[Gemini rewrite<br/>falls back to offline text]
+    GEN --> OUT([Ranked songs + explanation + confidence + warnings])
+    LLM -.-> OUT
+
+    V -.-> LOG[(logs/vibematch.log)]
+    C -.-> LOG
+    CHK -.-> LOG
+    OUT -.-> LOG
+
+    subgraph TEST [Testing and human review]
+        UT[pytest: 27 unit and integration tests]
+        EV[evals/evaluate.py<br/>16 scripted checks -> evals/results.md]
+        HUM[Human review of sample outputs<br/>and the log file]
+    end
+    UT -. exercises .-> RAG
+    UT -. exercises .-> GUARD_IN
+    EV -. runs full pipeline .-> OUT
+    HUM -. reads .-> LOG
+    HUM -. judges .-> OUT

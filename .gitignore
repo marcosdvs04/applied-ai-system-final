@@ -8,10 +8,14 @@ __pycache__/
 env/
 venv/
 
+# Secrets
+.env
+
 # OS files
 .DS_Store
 
-# Pytest cache
+# Test caches
 .pytest_cache/
-venv/
-__pycache__/
+
+# Runtime logs (regenerated on every run; sample output lives in evals/)
+logs/*.log

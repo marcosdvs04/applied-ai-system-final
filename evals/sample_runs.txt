@@ -1,0 +1,69 @@
+$ python -m src.cli "music for studying late at night"
+Query: "music for studying late at night"
+Status: ok   Confidence: 0.75
+Profile: genre=lofi, mood=focused, energy=0.40, acoustic=True
+  evidence: retrieved 'Situation: studying and coding' (score 2.0)
+  evidence: retrieved 'Situation: night drive' (score 2.0)
+  evidence: genre: 'lofi' from 'Situation: studying and coding'
+  evidence: mood: 'focused' from 'Situation: studying and coding'
+  evidence: energy: '0.4' from 'Situation: studying and coding'
+  evidence: acoustic: 'True' from 'Situation: studying and coding'
+Why: Steady, low-energy, mostly instrumental music keeps attention on the task without grabbing it. Lofi with a slow tempo is the classic choice. [KB: Situation: studying and coding] Top pick for "music for studying late at night": Focus Flow by LoRoom (score 6.28).
+1. Focus Flow - LoRoom (lofi/focused) score 6.28/6.5
+     because: genre match (+2.0); mood match (+1.5); energy 0.40 vs target 0.40 (+2.00); acoustic fit (+0.78)
+2. Library Rain - Paper Lanterns (lofi/chill) score 4.66/6.5
+     because: genre match (+2.0); energy 0.35 vs target 0.40 (+1.80); acoustic fit (+0.86)
+3. Midnight Coding - LoRoom (lofi/chill) score 4.63/6.5
+     because: genre match (+2.0); energy 0.42 vs target 0.40 (+1.92); acoustic fit (+0.71)
+4. Coffee Shop Stories - Slow Stereo (jazz/relaxed) score 2.77/6.5
+     because: energy 0.37 vs target 0.40 (+1.88); acoustic fit (+0.89)
+5. Spacewalk Thoughts - Orbit Bloom (ambient/chill) score 2.44/6.5
+     because: energy 0.28 vs target 0.40 (+1.52); acoustic fit (+0.92)
+
+$ python -m src.cli "I'm at the gym, need something hype"
+Query: "I'm at the gym, need something hype"
+Status: ok   Confidence: 1.00
+Profile: genre=pop, mood=energetic, energy=0.90, acoustic=False
+  evidence: retrieved 'Situation: working out' (score 4.0)
+  evidence: genre: 'pop' from 'Situation: working out'
+  evidence: mood: 'energetic' stated in the request
+  evidence: energy: '0.9' stated in the request
+  evidence: acoustic: 'False' from 'Situation: working out'
+Why: High-energy, electronic, driving tracks match the pace of effort. Fast tempo and low acousticness help keep the intensity up. [KB: Situation: working out] Top pick for "I'm at the gym, need something hype": Gym Hero by Max Pulse (score 4.83).
+1. Gym Hero - Max Pulse (pop/intense) score 4.83/6.5
+     because: genre match (+2.0); energy 0.93 vs target 0.90 (+1.88); acoustic fit (+0.95)
+2. Sunrise City - Neon Echo (pop/happy) score 4.50/6.5
+     because: genre match (+2.0); energy 0.82 vs target 0.90 (+1.68); acoustic fit (+0.82)
+3. Concrete Verses - Kid Meridian (hip hop/energetic) score 3.98/6.5
+     because: mood match (+1.5); energy 0.80 vs target 0.90 (+1.60); acoustic fit (+0.88)
+4. Storm Runner - Voltline (rock/intense) score 2.86/6.5
+     because: energy 0.91 vs target 0.90 (+1.96); acoustic fit (+0.90)
+5. Neon Euphoria - Pulsewave (edm/euphoric) score 2.78/6.5
+     because: energy 0.95 vs target 0.90 (+1.80); acoustic fit (+0.98)
+
+$ python -m src.cli "k-pop dreamy"
+Query: "k-pop dreamy"
+Status: low_confidence   Confidence: 0.30
+Profile: genre=k-pop, mood=moody, energy=0.50, acoustic=False
+  evidence: genre: 'k-pop' stated in the request
+  evidence: mood: 'moody' stated in the request
+Why: Top pick for "k-pop dreamy": Night Drive Loop by Neon Echo (score 3.28).
+1. Night Drive Loop - Neon Echo (synthwave/moody) score 3.28/6.5
+     because: mood match (+1.5); energy 0.75 vs target 0.50 (+1.00); acoustic fit (+0.78)
+2. Velvet Promise - Amara Lux (r&b/romantic) score 2.60/6.5
+     because: energy 0.48 vs target 0.50 (+1.92); acoustic fit (+0.68)
+3. Porch Light Memories - Dusty Calloway (country/nostalgic) score 2.27/6.5
+     because: energy 0.52 vs target 0.50 (+1.92); acoustic fit (+0.35)
+4. Midnight Coding - LoRoom (lofi/chill) score 1.97/6.5
+     because: energy 0.42 vs target 0.50 (+1.68); acoustic fit (+0.29)
+5. Focus Flow - LoRoom (lofi/focused) score 1.82/6.5
+     because: energy 0.40 vs target 0.50 (+1.60); acoustic fit (+0.22)
+! Genre 'k-pop' is not in the catalog, so it can't earn genre points.
+! Low confidence: some preferences were guessed. Add a genre or mood to sharpen results.
+
+$ python -m src.cli "asdf qwer"
+Query: "asdf qwer"
+Status: needs_clarification   Confidence: 0.00
+Profile: genre=?, mood=?, energy=0.50, acoustic=False
+! I couldn't tell what you want. Try a situation (studying, workout, night drive), a genre (jazz, edm) or a mood (sad, happy).
+

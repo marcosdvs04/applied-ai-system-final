@@ -1,0 +1,36 @@
+============================= test session starts ==============================
+platform linux -- Python 3.13.17, pytest-9.2.0, pluggy-1.7.0 -- /usr/local/bin/python3
+cachedir: .pytest_cache
+rootdir: /mnt/attach/outputs/build
+plugins: platformdirs-4.13.0, anyio-4.15.1
+collecting ... collected 27 items
+
+tests/test_guardrails.py::test_empty_query_rejected PASSED               [  3%]
+tests/test_guardrails.py::test_non_string_query_rejected PASSED          [  7%]
+tests/test_guardrails.py::test_long_query_rejected PASSED                [ 11%]
+tests/test_guardrails.py::test_whitespace_is_collapsed PASSED            [ 14%]
+tests/test_guardrails.py::test_energy_is_clamped_with_warning PASSED     [ 18%]
+tests/test_guardrails.py::test_non_numeric_energy_falls_back PASSED      [ 22%]
+tests/test_guardrails.py::test_unknown_genre_is_flagged PASSED           [ 25%]
+tests/test_guardrails.py::test_check_recommendations_detects_bad_order PASSED [ 29%]
+tests/test_guardrails.py::test_check_recommendations_detects_empty PASSED [ 33%]
+tests/test_knowledge.py::test_parse_chunks_reads_metadata PASSED         [ 37%]
+tests/test_knowledge.py::test_tokenize_drops_stopwords PASSED            [ 40%]
+tests/test_knowledge.py::test_retrieves_workout_chunk_for_gym PASSED     [ 44%]
+tests/test_knowledge.py::test_stemming_matches_studying_to_study PASSED  [ 48%]
+tests/test_knowledge.py::test_unrelated_query_retrieves_nothing PASSED   [ 51%]
+tests/test_knowledge.py::test_empty_query_retrieves_nothing PASSED       [ 55%]
+tests/test_knowledge.py::test_missing_kb_file_raises_clear_error PASSED  [ 59%]
+tests/test_pipeline.py::test_study_request_returns_lofi_first PASSED     [ 62%]
+tests/test_pipeline.py::test_retrieval_changes_the_recommendations PASSED [ 66%]
+tests/test_pipeline.py::test_explicit_words_override_retrieved_hints PASSED [ 70%]
+tests/test_pipeline.py::test_explanation_cites_knowledge_base PASSED     [ 74%]
+tests/test_pipeline.py::test_gibberish_asks_for_clarification PASSED     [ 77%]
+tests/test_pipeline.py::test_empty_input_is_rejected_not_crashed PASSED  [ 81%]
+tests/test_pipeline.py::test_out_of_range_energy_is_clamped PASSED       [ 85%]
+tests/test_pipeline.py::test_k_is_respected_and_sorted PASSED            [ 88%]
+tests/test_pipeline.py::test_llm_mode_without_key_falls_back PASSED      [ 92%]
+tests/test_pipeline.py::test_log_file_is_written PASSED                  [ 96%]
+tests/test_pipeline.py::test_uncataloged_genre_is_flagged_not_ignored PASSED [100%]
+
+============================== 27 passed in 0.07s ==============================

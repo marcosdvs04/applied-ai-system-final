@@ -1,4 +1,62 @@
-# 🎧 Model Card: VibeMatch 1.0
+# Model Card: VibeMatch (Applied AI System)
+
+This card covers the final system (VibeMatch with retrieval, guardrails and evaluation). The original Module 3 model card is kept unchanged in the appendix at the end.
+
+## System Overview
+
+VibeMatch turns a plain-text request into a taste profile using a small knowledge base (retrieval-augmented generation), ranks an 18-song catalog with a transparent weighted score, and explains each answer with cited knowledge-base notes. It reports a confidence score and asks for clarification when it cannot tell what the user wants.
+
+## Limitations and Biases
+
+- **Tiny, hand-made catalog.** 18 songs and 28 knowledge chunks. Most genres have one song, so "recommendation" is often just "the only song of that genre". Many tastes (k-pop, punk, gospel, reggae, blues) are absent, and the system can only warn about them.
+- **Western, English-first bias.** The knowledge base reflects my own assumptions about what music fits a situation (studying = lofi, sad = folk). Other cultures and people would answer differently, and a person who studies to metal gets a lofi list unless they say so. Only a little Spanish is understood ("reggaeton para bailar" works because "reggaeton" is a keyword).
+- **One situation, one profile.** Each retrieved chunk maps to one genre and one mood. A request like "something to study and then work out" is reduced to whichever chunk ranks first.
+- **Keyword retrieval is brittle.** It misses words I did not list ("lullaby", "commute") and can retrieve a loosely related chunk ("night" also matches the night-drive chunk when someone studies at night, although the studying chunk still wins).
+- **Labels beat sound (inherited from Module 3).** A genre match plus a mood match is worth 3.5 of 6.5 points, so label matches can outrank songs that sound closer.
+- **Confidence is a heuristic.** It measures how much evidence supported the profile, not whether the recommendations are good. A confident answer can still be a poor fit.
+- **Hand-written numbers.** Energy and acousticness values were typed by hand, not measured from audio.
+
+## Misuse Risks and Prevention
+
+This is a low-risk music tool, but a few risks exist:
+
+- **Prompt-style abuse of the optional LLM step.** A user could try to make the model say something unrelated. Mitigations: the LLM only receives the already-built explanation text, may not add facts, its output is rejected if it quotes anything not in the source, it never affects ranking, and offline mode is the default.
+- **Oversized or malformed input.** Input is limited to 300 characters, must be text, and is whitespace-normalized before use.
+- **Secrets.** The API key is read from an environment variable only, `.env` is in `.gitignore`, and the key is never logged.
+- **Privacy.** Requests are logged locally to `logs/vibematch.log`. Logs are not committed to the repository. If this were deployed, requests would need a retention policy and a notice to users.
+- **Manipulating what gets recommended.** If a real catalog included paid placement, retrieved notes could be used to push songs. Keeping scores and reasons visible makes that kind of bias easier to spot.
+
+## Reliability Testing and Surprises
+
+Results: 27/27 unit and integration tests pass, 16/16 scripted evaluation checks pass, average confidence 0.78 on answered requests (see `evals/results.md`).
+
+What surprised me:
+
+1. **My demo looked fine, but the evaluation script found a silent failure.** `k-pop` returned "needs clarification" with no explanation, because the genre detector only knew genres that exist in the catalog. A word the system could not match was invisible.
+2. **The first confidence number was wrong in a believable way.** "k-pop dreamy" scored 0.60 because the user clearly *stated* a genre, even though the catalog could not use it. Confidence needed to count evidence that can actually be used, so I changed it and it dropped to 0.30.
+3. **Retrieval noise is real even with 28 chunks.** "Study music, no acoustic" retrieved a folk chunk because of the word "acoustic" until I removed that keyword from the folk entry.
+4. **The recommender barely needed to change.** Almost all the new work was around it (input, evidence, checks), which fits the idea that reliability comes from system design.
+
+## Collaboration with AI
+
+I built this project with Claude as a coding assistant. I described the assignment and chose the base project; Claude proposed the design, wrote the code and ran the tests, and I reviewed what it produced.
+
+- **One suggestion I accepted:** keep retrieval as simple keyword matching over a Markdown knowledge base rather than adding embeddings or a vector database. It keeps the project runnable with no API key, makes every retrieval explainable in the evidence trail, and is easy to test. It was the right size for 28 chunks.
+- **One suggestion I did not accept as written:** an LLM-first design, where a model would parse the request and write the whole explanation. I changed it so the default explanation is built offline from score reasons and cited knowledge-base notes, and the LLM is only an optional rewrite that is checked against the source text and can never affect the ranking. A free-form LLM answer is harder to test, could invent claims, and would make the project depend on an API key. I also changed the first confidence formula, which counted any stated genre as full evidence. The evaluation script showed that was misleading ("k-pop dreamy" scored 0.60), so unsupported genres now count as zero evidence.
+- **What I verified myself:** I re-ran the tests and the evaluation script, read the generated outputs in `evals/sample_runs.txt`, and checked that the scores in the original recommender were unchanged.
+
+## Ideas for Future Work
+
+1. Partial credit for related genres and moods ("relaxed" counts halfway toward "chill").
+2. Retrieve more than one situation and blend them, instead of using only the top chunk.
+3. Add a diversity rule so one artist cannot fill the top spots.
+4. Replace keyword retrieval with embeddings only if the knowledge base grows beyond what keywords can handle, and measure whether it actually improves the evaluation results.
+
+---
+
+# Appendix: Original Module 3 Model Card
+
+## Model Card: VibeMatch 1.0 (Module 3, unchanged)
 
 ## 1. Model Name
 
